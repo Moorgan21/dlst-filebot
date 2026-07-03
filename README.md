@@ -85,3 +85,7 @@ sudo systemctl enable --now dlst-filebot.service
 
 - Python 3.10+
 - [pyrogram](https://docs.pyrogram.org/) 2.x
+
+## لایسنس
+
+این پروژه تحت لایسنس [MIT](LICENSE) منتشر شده است.
