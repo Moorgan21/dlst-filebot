@@ -78,7 +78,7 @@ sudo systemctl enable --now dlst-filebot.service
 ## دستورات بات
 
 - `/start` — راهنمای استفاده
-- ارسال هر فایلی → دریافت لینک مستقیم `BASE_URL/dl/{chat_id}/{message_id}`
+- ارسال هر فایلی → دریافت لینک مستقیم `BASE_URL/dl/{chat_id}/{message_id}?t={token}` (توکن به‌صورت خودکار و امضاشده با `BOT_TOKEN` ساخته می‌شه؛ بدون توکن معتبر درخواست با خطای ۴۰۳ رد می‌شه)
 - `/traffic` — نمایش کل حجم استریم‌شده از راه‌اندازی سرویس (فقط `ADMIN_ID`)
 
 ## نیازمندی‌ها

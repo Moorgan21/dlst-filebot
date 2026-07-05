@@ -8,6 +8,7 @@ from pyrogram.errors import RPCError
 from . import stats
 from .config import CHUNK_SIZE
 from .range_utils import parse_range, compute_chunk_params
+from .security import verify_token
 
 logger = logging.getLogger(__name__)
 routes = web.RouteTableDef()
@@ -29,6 +30,9 @@ async def _resolve(request: web.Request):
     except ValueError:
         raise web.HTTPBadRequest(text="لینک نامعتبر است")
 
+    if not verify_token(chat_id, message_id, request.query.get("t", "")):
+        raise web.HTTPForbidden(text="لینک نامعتبر یا دستکاری‌شده است")
+
     try:
         message = await client.get_messages(chat_id, message_id)
     except RPCError:
@@ -42,6 +46,11 @@ async def _resolve(request: web.Request):
         raise web.HTTPNotFound(text="پیام موردنظر فایلی ندارد")
 
     return client, message, media
+
+
+def _validate_range(from_bytes, until_bytes, file_size):
+    if from_bytes < 0 or until_bytes >= file_size or from_bytes > until_bytes:
+        raise web.HTTPRequestRangeNotSatisfiable()
 
 
 def _headers_for(media, from_bytes, until_bytes, file_size, is_range):
@@ -65,6 +74,7 @@ async def stream_head(request: web.Request):
     _, _, media = await _resolve(request)
     file_size = media.file_size
     from_bytes, until_bytes = parse_range(request.headers.get("Range"), file_size)
+    _validate_range(from_bytes, until_bytes, file_size)
     headers = _headers_for(media, from_bytes, until_bytes, file_size, bool(request.headers.get("Range")))
     status = 206 if request.headers.get("Range") else 200
     return web.Response(status=status, headers=headers)
@@ -77,9 +87,7 @@ async def stream_get(request: web.Request):
 
     range_header = request.headers.get("Range")
     from_bytes, until_bytes = parse_range(range_header, file_size)
-
-    if from_bytes < 0 or until_bytes >= file_size or from_bytes > until_bytes:
-        raise web.HTTPRequestRangeNotSatisfiable()
+    _validate_range(from_bytes, until_bytes, file_size)
 
     first_chunk_index, first_cut, last_cut, part_count = compute_chunk_params(
         from_bytes, until_bytes, CHUNK_SIZE

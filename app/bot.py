@@ -5,6 +5,7 @@ from pyrogram.types import Message
 
 from . import stats
 from .config import API_ID, API_HASH, BOT_TOKEN, BASE_URL, LOG_CHANNEL, ADMIN_ID
+from .security import generate_token
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,8 @@ async def file_handler(_: Client, message: Message):
         else:
             chat_id, message_id = message.chat.id, message.id
 
-        link = f"{BASE_URL}/dl/{chat_id}/{message_id}"
+        token = generate_token(chat_id, message_id)
+        link = f"{BASE_URL}/dl/{chat_id}/{message_id}?t={token}"
         file_name = getattr(media, "file_name", None) or "file"
         file_size = getattr(media, "file_size", 0)
 
