@@ -1,5 +1,4 @@
 import logging
-import mimetypes
 import urllib.parse
 
 from aiohttp import web
@@ -7,19 +6,14 @@ from pyrogram.errors import RPCError
 
 from . import stats
 from .config import CHUNK_SIZE
+from .link_manager import link_manager
+from .media import get_media, resolve_file_name_and_mime
 from .range_utils import parse_range, compute_chunk_params
 from .security import verify_token
+from .throttle import shared_throttle
 
 logger = logging.getLogger(__name__)
 routes = web.RouteTableDef()
-
-
-def _get_media(message):
-    for attr in ("document", "video", "audio", "voice", "video_note", "animation", "photo"):
-        media = getattr(message, attr, None)
-        if media:
-            return media
-    return None
 
 
 async def _resolve(request: web.Request):
@@ -30,8 +24,12 @@ async def _resolve(request: web.Request):
     except ValueError:
         raise web.HTTPBadRequest(text="لینک نامعتبر است")
 
-    if not verify_token(chat_id, message_id, request.query.get("t", "")):
+    token = request.query.get("t", "")
+    if not verify_token(chat_id, message_id, token):
         raise web.HTTPForbidden(text="لینک نامعتبر یا دستکاری‌شده است")
+
+    if not await link_manager.is_active(chat_id, message_id, token):
+        raise web.HTTPGone(text="این لینک منقضی شده است")
 
     try:
         message = await client.get_messages(chat_id, message_id)
@@ -41,7 +39,7 @@ async def _resolve(request: web.Request):
     if message is None or message.empty:
         raise web.HTTPNotFound(text="فایل پیدا نشد")
 
-    media = _get_media(message)
+    media = get_media(message)
     if not media:
         raise web.HTTPNotFound(text="پیام موردنظر فایلی ندارد")
 
@@ -54,8 +52,7 @@ def _validate_range(from_bytes, until_bytes, file_size):
 
 
 def _headers_for(media, from_bytes, until_bytes, file_size, is_range):
-    file_name = getattr(media, "file_name", None) or "file"
-    mime_type = getattr(media, "mime_type", None) or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    file_name, mime_type = resolve_file_name_and_mime(media)
     quoted_name = urllib.parse.quote(file_name)
 
     headers = {
@@ -83,6 +80,7 @@ async def stream_head(request: web.Request):
 @routes.get("/dl/{chat_id}/{message_id}", allow_head=False)
 async def stream_get(request: web.Request):
     client, message, media = await _resolve(request)
+    token = request.query.get("t", "")
     file_size = media.file_size
 
     range_header = request.headers.get("Range")
@@ -115,6 +113,7 @@ async def stream_get(request: web.Request):
             break
         else:
             stats.add_bytes(len(chunk))
+            await shared_throttle.wait_for_slot(token, len(chunk))
 
     await response.write_eof()
     return response

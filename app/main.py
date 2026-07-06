@@ -6,7 +6,10 @@ from aiohttp import web
 from . import stats
 from .bot import bot
 from .config import BIND_ADDRESS, PORT
+from .link_manager import link_manager
+from .redis_client import client as redis_client
 from .stream import routes
+from .throttle import shared_throttle
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,14 +37,19 @@ async def main():
     logger.info("Streaming server running on %s:%s", BIND_ADDRESS, PORT)
 
     stats_task = asyncio.ensure_future(_periodic_stats_save())
+    queue_task = asyncio.ensure_future(link_manager.run_drain_loop(bot))
+    throttle_refresh_task = asyncio.ensure_future(shared_throttle.run_active_count_refresh_loop())
 
     try:
         await asyncio.Event().wait()
     finally:
         stats_task.cancel()
+        queue_task.cancel()
+        throttle_refresh_task.cancel()
         stats.save()
         await runner.cleanup()
         await bot.stop()
+        await redis_client.aclose()
 
 
 if __name__ == "__main__":
